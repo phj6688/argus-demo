@@ -39,3 +39,16 @@ def test_describe_status_reports_stale_runs(tmp_path: Path):
     assert describe_status(status, now=finished + 60).startswith("ok:")
     assert describe_status(status, now=finished + 30 * 3600).startswith("stale:")
     assert describe_status(tmp_path / "missing.json") == "no backup has run yet"
+
+
+def test_exhausted_retries_record_failure(tmp_path: Path):
+    status = tmp_path / "status.json"
+    failed = subprocess.CalledProcessError(1, "pg_dump")
+    with mock.patch("backup.runner.subprocess.run", side_effect=failed) as run:
+        with mock.patch("backup.runner.time.sleep") as sleep:
+            ok = run_backup("db.internal.example", "app", tmp_path / "app.sql", status)
+    assert ok is False
+    assert run.call_count == 3
+    assert sleep.call_count == 2
+    assert run.call_args.kwargs["check"] is True
+    assert json.loads(status.read_text())["state"] == "failed"

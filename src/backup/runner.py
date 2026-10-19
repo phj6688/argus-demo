@@ -19,8 +19,8 @@ def write_status(path: Path, state: str, detail: str = "") -> None:
 def _attempt_dump(cmd: list[str]) -> str:
     """Run pg_dump once and return a short outcome label for the status detail."""
     try:
-        subprocess.run(cmd, timeout=DUMP_TIMEOUT_SECONDS)
-    except Exception as exc:
+        subprocess.run(cmd, check=True, timeout=DUMP_TIMEOUT_SECONDS)
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as exc:
         return f"error: {exc}"
     return "dumped"
 
@@ -41,9 +41,13 @@ def run_backup(
         outcome = _attempt_dump(cmd)
         if outcome == "dumped":
             break
-        time.sleep(delay)
-    write_status(status_file, "ok", f"{outcome} after {used} attempt(s)")
-    return True
+        if used < attempts:
+            time.sleep(delay)
+    succeeded = outcome == "dumped"
+    write_status(
+        status_file, "ok" if succeeded else "failed", f"{outcome} after {used} attempt(s)"
+    )
+    return succeeded
 
 
 def describe_status(status_file: Path, now: float | None = None) -> str:
